@@ -1,0 +1,116 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CreateSprite
+#pragma kernel CalcNormals
+#pragma kernel CalcNormals5
+#pragma kernel GaussianBlur
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+RWTexture2D<float4> BumpMap;
+RWTexture2D<float4> SmoothMap;
+Texture2D<float4> Noise;
+Texture2D<float4> Shape;
+float2 offset;
+float shapeWeight;
+float noiseWeight;
+float timeShift;
+float sharpness;
+int dist;
+int blurSize;
+
+[numthreads(8,8,1)]
+void CreateSprite (uint3 id : SV_DispatchThreadID)
+{
+	float4 samp = (Noise[id.xy + offset] * Shape[id.xy] * (shapeWeight + (1 - timeShift) / 5 )+  Shape[id.xy] * (noiseWeight + timeShift / 5)) / 2;
+	Result[id.xy] = float4(1, 1, 1, samp[0]);
+}
+
+[numthreads(8, 8, 1)]
+void CalcNormals(uint3 id : SV_DispatchThreadID)
+{
+	float tl = (Result[id.xy + float2(dist, dist)] * 2 - Result[id.xy] * 2)[3] / 2;
+	float tm = (Result[id.xy + float2(0, dist)] * 2 - Result[id.xy] * 2)[3] / 2;
+	float tr = (Result[id.xy + float2(-dist, dist)] * 2 - Result[id.xy] * 2)[3] / 2;
+
+	float ml = (Result[id.xy + float2(dist, 0)] * 2 - Result[id.xy] * 2)[3] / 2;
+	float mr = (Result[id.xy + float2(-dist, 0)] * 2 - Result[id.xy] * 2)[3] / 2;
+
+	float bl = (Result[id.xy + float2(dist, -dist)] * 2 - Result[id.xy] * 2)[3] / 2;
+	float bm = (Result[id.xy + float2(0, -dist)] * 2 - Result[id.xy] * 2)[3] / 2;
+	float br = (Result[id.xy + float2(-dist, -dist)] * 2 - Result[id.xy] * 2)[3] / 2;
+
+	float dy = (tl + 2 * tm + tr) / 4 - (bl + 2 * bm + br) / 4;
+	float dx = (tl + 2 * ml + bl) / 4 - (tr + 2 * mr + br) / 4;
+	float dz = 1.0 / sharpness;
+
+	float3 bump = float3(dx, dy, dz);
+	bump = normalize(bump);
+
+	float r = (bump[0] + 1.0) / 2.0;
+	float g = (bump[1] + 1.0) / 2.0;
+	float b = (bump[2] + 1.0) / 2.0;
+
+	BumpMap[id.xy] = float4(r, g, b, 1);
+}
+
+[numthreads(8, 8, 1)]
+void CalcNormals5(uint3 id : SV_DispatchThreadID)
+{
+	float x1y1 = (Result[id.xy + float2(dist * 2, dist * 2)] - Result[id.xy])[3];
+	float x2y1 = (Result[id.xy + float2(dist, dist * 2)] - Result[id.xy])[3];
+	float x3y1 = (Result[id.xy + float2(0, dist * 2)] - Result[id.xy])[3];
+	float x4y1 = (Result[id.xy + float2(-dist, dist * 2)] - Result[id.xy])[3];
+	float x5y1 = (Result[id.xy + float2(-(dist * 2), dist * 2)] - Result[id.xy])[3];
+
+	float x1y2 = (Result[id.xy + float2(dist * 2, dist)] - Result[id.xy])[3];
+	float x2y2 = (Result[id.xy + float2(dist, dist)] - Result[id.xy])[3];
+	float x3y2 = (Result[id.xy + float2(0, dist)] - Result[id.xy])[3];
+	float x4y2 = (Result[id.xy + float2(-dist, dist)] - Result[id.xy])[3];
+	float x5y2 = (Result[id.xy + float2(-(dist * 2), dist)] - Result[id.xy])[3];
+
+	float x1y3 = (Result[id.xy + float2(dist * 2, 0)] - Result[id.xy])[3];
+	float x2y3 = (Result[id.xy + float2(dist, 0)] - Result[id.xy])[3];
+	float x3y3 = (Result[id.xy + float2(0, 0)] - Result[id.xy])[3];
+	float x4y3 = (Result[id.xy + float2(-dist, 0)] - Result[id.xy])[3];
+	float x5y3 = (Result[id.xy + float2(-(dist * 2), 0)] - Result[id.xy])[3];
+
+	float x1y4 = (Result[id.xy + float2(dist * 2, -dist)] - Result[id.xy])[3];
+	float x2y4 = (Result[id.xy + float2(dist, -dist)] - Result[id.xy])[3];
+	float x3y4 = (Result[id.xy + float2(0, -dist)] - Result[id.xy])[3];
+	float x4y4 = (Result[id.xy + float2(-dist, -dist)] - Result[id.xy])[3];
+	float x5y4 = (Result[id.xy + float2(-(dist * 2), -dist)] - Result[id.xy])[3];
+
+	float x1y5 = (Result[id.xy + float2(dist * 2, -(dist * 2))] - Result[id.xy])[3];
+	float x2y5 = (Result[id.xy + float2(dist, (-dist * 2))] - Result[id.xy])[3];
+	float x3y5 = (Result[id.xy + float2(0, -(dist * 2))] - Result[id.xy])[3];
+	float x4y5 = (Result[id.xy + float2(-dist, -(dist * 2))] - Result[id.xy])[3];
+	float x5y5 = (Result[id.xy + float2(-(dist * 2), -(dist * 2))] - Result[id.xy])[3];
+
+	float dy = (x1y1 * 2 + x2y1 * 2 + x3y1 * 4 + x4y1 * 2 + x5y1 * 2) / 12 + (x1y2 + x2y2 + x3y2 * 2 + x4y2 + x5y2) / 6 - (x1y4 + x2y4 + x3y4 * 2 + x4y4 + x5y4) / 6 - (x1y5 * 2 + x2y5 * 2 + x3y5 * 4 + x4y5 * 2 + x5y5 * 2) / 12;
+	float dx = (x1y1 * 2 + x1y2 * 2 + x1y3 * 4 + x1y4 * 2 + x1y5 * 2) / 12 + (x2y1 + x2y2 + x2y3 * 2 + x2y4 + x2y5) / 6 - (x4y1 + x4y2 + x4y3 * 2 + x4y4 + x4y5) / 6 - (x5y1 * 2 + x5y2 * 2 + x5y3 * 4 + x5y4 * 2 + x5y5 * 2) / 12;
+	float dz = 1.0 / sharpness;
+
+	float3 bump = float3(dx, dy, dz);
+	bump = normalize(bump);
+
+	float r = (bump[0] + 1.0) / 2.0;
+	float g = (bump[1] + 1.0) / 2.0;
+	float b = (bump[2] + 1.0) / 2.0;
+	
+	BumpMap[id.xy] = float4(r, g, b, 1);
+}
+
+[numthreads(8, 8, 1)]
+void GaussianBlur(uint3 id : SV_DispatchThreadID)
+{
+	float4 pixel = {0, 0, 0, 1};
+
+	for (int i = 0; i < blurSize; i++) {
+		pixel += BumpMap[id.xy + float2(i - blurSize / 2, 0)] / blurSize;
+		pixel += BumpMap[id.xy + float2(0, i - blurSize / 2)] / blurSize;
+	}
+	
+
+	SmoothMap[id.xy] = pixel / 2;
+}
